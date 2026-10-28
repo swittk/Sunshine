@@ -1,4 +1,22 @@
 # linux specific compile definitions
+# Experimental source adapter for QEMU Display1.
+# This is a source-only build option; default remains OFF.
+option(SUNSHINE_ENABLE_QEMU_DBUS "Capture QEMU D-Bus display frames directly" OFF)
+if(SUNSHINE_ENABLE_QEMU_DBUS)
+    set(QMDP_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+    set(QMDP_ENABLE_REAL_QEMU_E2E OFF CACHE BOOL "" FORCE)
+    set(QMDP_ENABLE_DMABUF_READBACK OFF CACHE BOOL "" FORCE)
+    set(QMDP_BUILD_DBUS ON CACHE BOOL "" FORCE)
+    add_subdirectory("${CMAKE_SOURCE_DIR}/../qsm-rd/qsm-direct" "${CMAKE_BINARY_DIR}/qmdp")
+    add_library(reims_capture_bridge STATIC "${CMAKE_SOURCE_DIR}/../bridge/src/capture_feed.cpp")
+    target_include_directories(reims_capture_bridge PUBLIC "${CMAKE_SOURCE_DIR}/../bridge/src")
+    target_link_libraries(reims_capture_bridge PUBLIC qmdp_core)
+    include_directories("${CMAKE_SOURCE_DIR}/../bridge/src" "${CMAKE_SOURCE_DIR}/../qsm-rd/qsm-direct/src")
+    list(APPEND PLATFORM_LIBRARIES qmdp_dbus reims_capture_bridge)
+    list(APPEND PLATFORM_TARGET_FILES "${CMAKE_SOURCE_DIR}/src/platform/linux/qemudbusgrab.cpp")
+    add_compile_definitions(SUNSHINE_BUILD_QEMU_DBUS)
+endif()
+
 
 if(FREEBSD)
     add_compile_definitions(SUNSHINE_PLATFORM="freebsd")

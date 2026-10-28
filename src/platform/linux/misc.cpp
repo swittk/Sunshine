@@ -1158,11 +1158,20 @@ namespace platf {
 #ifdef SUNSHINE_BUILD_PORTAL
       PORTAL,  ///< XDG PORTAL
 #endif
+#ifdef SUNSHINE_BUILD_QEMU_DBUS
+      QEMU,  ///< QEMU D-Bus shared-memory capture
+#endif
       MAX_FLAGS  ///< The maximum number of flags
     };
   }  // namespace source
 
   static std::bitset<source::MAX_FLAGS> sources;
+
+#ifdef SUNSHINE_BUILD_QEMU_DBUS
+  std::vector<std::string> qemu_dbus_display_names();
+  std::shared_ptr<display_t> qemu_dbus_display(mem_type_e hwdevice_type,
+    const std::string &display_name, const video::config_t &config);
+#endif
 
 #ifdef SUNSHINE_BUILD_CUDA
   std::vector<std::string> nvfbc_display_names();
@@ -1310,6 +1319,11 @@ namespace platf {
    * @brief List display names accepted by the selected capture backend.
    */
   std::vector<std::string> display_names(mem_type_e hwdevice_type) {
+#ifdef SUNSHINE_BUILD_QEMU_DBUS
+    if (sources[source::QEMU]) {
+      return qemu_dbus_display_names();
+    }
+#endif
 #ifdef SUNSHINE_BUILD_CUDA
     // display using NvFBC only supports mem_type_e::cuda
     if (sources[source::NVFBC] && hwdevice_type == mem_type_e::cuda) {
@@ -1363,6 +1377,11 @@ namespace platf {
   }
 
   std::shared_ptr<display_t> display(mem_type_e hwdevice_type, const std::string &display_name, const video::config_t &config) {
+#ifdef SUNSHINE_BUILD_QEMU_DBUS
+    if (sources[source::QEMU]) {
+      return qemu_dbus_display(hwdevice_type, display_name, config);
+    }
+#endif
     // Please ensure that KMS followed by CUDA remains at the top so that we can
     // drop DRM worker privileges once neither backend requires it.
 
@@ -1453,6 +1472,11 @@ namespace platf {
 
     // Avoid mutating config directly if Portal needs to run in fallback capture mode.
     std::string selected_capture = config::video.capture;
+#ifdef SUNSHINE_BUILD_QEMU_DBUS
+    if (selected_capture == "qemu" && !qemu_dbus_display_names().empty()) {
+      sources[source::QEMU] = true;
+    }
+#endif
 
     // When Portal is explicitly selected, probe it first so other capture methods can be considered for fallback capture.
 #ifdef SUNSHINE_BUILD_PORTAL
@@ -1503,7 +1527,12 @@ namespace platf {
       return nullptr;
     }
 
+#ifdef SUNSHINE_BUILD_QEMU_DBUS
+    // QEMU CPU frames do not require an EGL display.
+    if (!sources[source::QEMU] && !gladLoaderLoadEGL(NULL)) {
+#else
     if (!gladLoaderLoadEGL(NULL)) {
+#endif
       BOOST_LOG(error) << "Failed to load EGL library symbols"sv;
       return nullptr;
     }
