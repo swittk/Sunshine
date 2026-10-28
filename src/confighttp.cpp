@@ -848,7 +848,16 @@ namespace confighttp {
    */
   bool validate_csrf_token(const resp_https_t &response, const req_https_t &request, const std::string &client_id) {
     // Helper function to check if a URL starts with any allowed origin
-    auto is_allowed_origin = [](const std::string_view url) {
+    auto is_allowed_origin = [&request](const std::string_view url) {
+      // Browser requests to this exact Host are same-origin, even on a LAN IP.
+      const auto host = request->header.find("Host");
+      if (host != request->header.end() && !host->second.empty()) {
+        const std::string same_origin = "https://" + host->second;
+        if (url == same_origin || (url.starts_with(same_origin) &&
+            url.size() > same_origin.size() && url[same_origin.size()] == '/')) {
+          return true;
+        }
+      }
       return std::ranges::any_of(config::sunshine.csrf_allowed_origins, [&url](const std::string &allowed_origin) {
         // Ensure exact prefix match (with ":" or "/" after to prevent malicious.com matching allowed.com)
         if (url.rfind(allowed_origin, 0) != 0) {  // rfind with pos=0 checks if the url starts with allowed_origin
