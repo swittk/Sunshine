@@ -33,6 +33,9 @@ if(SUNSHINE_ENABLE_QEMU_DBUS)
     add_executable(reims_gio_lifecycle "${CMAKE_SOURCE_DIR}/../bridge/tests/gio_lifecycle.cpp")
     target_include_directories(reims_gio_lifecycle PRIVATE "${CMAKE_SOURCE_DIR}/../bridge/src")
     target_link_libraries(reims_gio_lifecycle PRIVATE reims_capture_bridge)
+    add_executable(reims_audio_forwarder "${CMAKE_SOURCE_DIR}/../bridge/src/audio_forward_main.cpp" "${CMAKE_SOURCE_DIR}/../bridge/src/pulse_audio_bridge.cpp")
+    target_include_directories(reims_audio_forwarder PRIVATE "${CMAKE_SOURCE_DIR}/../bridge/src")
+    target_link_libraries(reims_audio_forwarder PRIVATE reims_capture_bridge pulse-simple pulse)
 endif()
 
 

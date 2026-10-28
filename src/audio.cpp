@@ -194,7 +194,9 @@ namespace audio {
     }
 
     // Prefer the virtual sink if host playback is disabled or there's no other sink
-    if (ref->sink.null && (!config.flags[config_t::HOST_AUDIO] || sink->empty())) {
+    // QEMU uses an explicit private sink; do not relocate its writer elsewhere.
+    const bool fixed_vm_sink = config::video.capture == "qemu" && !config::audio.sink.empty();
+    if (!fixed_vm_sink && ref->sink.null && (!config.flags[config_t::HOST_AUDIO] || sink->empty())) {
       auto &null = *ref->sink.null;
       switch (stream.channelCount) {
         case 2:

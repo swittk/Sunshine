@@ -28,6 +28,7 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include <thread>
 
 namespace platf {
 namespace {
@@ -41,8 +42,9 @@ public:
 class qemu_display_t final: public display_t {
 public:
     qemu_display_t(mem_type_e mem_type, const std::string &address,
-                   const std::string &destination):
+                   const std::string &destination, double fps):
         mem_type_(mem_type),
+        frame_interval_(static_cast<long long>(1000000000.0/fps)),
         qemu_(std::make_shared<reims_stream::GioQemuDisplay>(address,destination,use_guest_audio())),
         feed_(*qemu_) {
         feed_.set_audio_callback([this](std::span<const float> data,std::uint32_t rate,std::uint16_t channels){
@@ -71,7 +73,9 @@ public:
 
     capture_e capture(const push_captured_image_cb_t &push,
                       const pull_free_image_cb_t &pull, bool * /*cursor*/) override {
+        auto next_frame=std::chrono::steady_clock::now();
         for (;;) {
+            std::this_thread::sleep_until(next_frame);
             std::shared_ptr<img_t> img;
             if (!pull(img)) return capture_e::interrupted;
             if (!img) return capture_e::capture_error;
@@ -86,6 +90,7 @@ public:
                 500ms, metadata);
             switch (result) {
                 case reims_stream::CaptureStatus::frame:
+                    next_frame=std::chrono::steady_clock::now()+frame_interval_;
                     img->data = out->buffer.data();
                     img->row_pitch = width * 4;
                     img->pixel_pitch = 4;
@@ -148,6 +153,7 @@ private:
         return setting && std::strcmp(setting,"1")==0;
     }
     mem_type_e mem_type_;
+    std::chrono::nanoseconds frame_interval_;
     std::shared_ptr<reims_stream::GioQemuDisplay> qemu_;
     reims_stream::PulseAudioBridge audio_;
     reims_stream::CaptureFeed feed_;
@@ -161,7 +167,7 @@ std::vector<std::string> qemu_dbus_display_names() {
 
 std::shared_ptr<display_t> qemu_dbus_display(mem_type_e mem_type,
                                               const std::string &,
-                                              const video::config_t &) {
+                                              const video::config_t &config) {
     const char *address = std::getenv("QEMU_DBUS_ADDRESS");
     if (!address || !address[0]) {
         BOOST_LOG(error) << "Set QEMU_DBUS_ADDRESS for QEMU capture";
@@ -177,7 +183,8 @@ std::shared_ptr<display_t> qemu_dbus_display(mem_type_e mem_type,
     // broker:/path and inherited fd: modes use an empty destination.
     // -display dbus,addr=... connects to a message bus and uses org.qemu.
     auto backend = std::make_shared<qemu_display_t>(
-        mem_type, address, dest ? std::string(dest) : std::string("org.qemu"));
+        mem_type, address, dest ? std::string(dest) : std::string("org.qemu"),
+        std::clamp(config.framerateX100>0 ? config.framerateX100/100.0 : double(config.framerate),1.0,240.0));
     try {
         if (!backend->initialize()) return nullptr;
         return backend;
