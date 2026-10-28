@@ -22,6 +22,9 @@
 #include "src/config.h"
 #include "src/logging.h"
 #include "virtualhid_input.h"
+#ifdef SUNSHINE_BUILD_QEMU_DBUS
+#include "input_route.hpp"
+#endif
 
 using namespace std::literals;
 
@@ -510,8 +513,20 @@ namespace platf::virtualhid {
 
   }  // namespace
 
-  input_context_t::input_context_t():
-      input_context_t {lvh::BackendKind::platform_default} {}
+  input_context_t::input_context_t() {
+#ifdef SUNSHINE_BUILD_QEMU_DBUS
+    // In QEMU capture mode, all supported input goes directly through
+    // Display1. Never create keyboard or mouse devices on the Linux host.
+    if (config::video.capture == "qemu") return;
+#endif
+    runtime = create_runtime(lvh::BackendKind::platform_default);
+    if (!runtime) {
+      BOOST_LOG(warning) << "Unable to create libvirtualhid runtime"sv;
+      return;
+    }
+    refresh_keyboard();
+    refresh_mouse();
+  }
 
   input_context_t::input_context_t(lvh::BackendKind backend):
       runtime {create_runtime(backend)} {
@@ -1152,34 +1167,95 @@ namespace platf {
 #endif
 
   void move_mouse(input_t &input, int deltaX, int deltaY) {
+#ifdef SUNSHINE_BUILD_QEMU_DBUS
+    if (config::video.capture == "qemu") {
+      (void) reims_stream::InputRoute::instance().relative_mouse(deltaX, deltaY);
+      return;
+    }
+#endif
     virtualhid::move_mouse(virtualhid::get_input_context(input), deltaX, deltaY);
   }
 
   void move_mouse(input_t &input, const touch_port_t &touch_port, int deltaX, int deltaY) {
+#ifdef SUNSHINE_BUILD_QEMU_DBUS
+    if (config::video.capture == "qemu") {
+      (void) touch_port;
+      (void) reims_stream::InputRoute::instance().relative_mouse(deltaX, deltaY);
+      return;
+    }
+#endif
     virtualhid::move_mouse(virtualhid::get_input_context(input), touch_port, deltaX, deltaY);
   }
 
   void abs_mouse(input_t &input, const touch_port_t &touch_port, float x, float y) {
+#ifdef SUNSHINE_BUILD_QEMU_DBUS
+    if (config::video.capture == "qemu") {
+      (void) reims_stream::InputRoute::instance().absolute_mouse(
+        static_cast<int>(x - touch_port.offset_x),
+        static_cast<int>(y - touch_port.offset_y));
+      return;
+    }
+#endif
     virtualhid::abs_mouse(virtualhid::get_input_context(input), touch_port, x, y);
   }
 
   void button_mouse(input_t &input, int button, bool release) {
+#ifdef SUNSHINE_BUILD_QEMU_DBUS
+    if (config::video.capture == "qemu") {
+      // QEMU: left=0 middle=1 right=2 wheel=3,4 side=5 extra=6.
+      // Sunshine: left=1 middle=2 right=3 side=4 extra=5.
+      const std::uint8_t qemu_button =
+        button == BUTTON_LEFT ? 0 : button == BUTTON_MIDDLE ? 1 :
+        button == BUTTON_RIGHT ? 2 : button == BUTTON_X1 ? 5 :
+        button == BUTTON_X2 ? 6 : 255;
+      if (qemu_button != 255)
+        (void) reims_stream::InputRoute::instance().button(qemu_button,!release);
+      return;
+    }
+#endif
     virtualhid::button_mouse(virtualhid::get_input_context(input), button, release);
   }
 
   void scroll(input_t &input, int high_res_distance) {
+#ifdef SUNSHINE_BUILD_QEMU_DBUS
+    if (config::video.capture == "qemu") {
+      (void) reims_stream::InputRoute::instance().wheel(high_res_distance);
+      return;
+    }
+#endif
     virtualhid::scroll(virtualhid::get_input_context(input), high_res_distance);
   }
 
   void hscroll(input_t &input, int high_res_distance) {
+#ifdef SUNSHINE_BUILD_QEMU_DBUS
+    if (config::video.capture == "qemu") {
+      (void) reims_stream::InputRoute::instance().wheel(high_res_distance, true);
+      return;
+    }
+#endif
     virtualhid::hscroll(virtualhid::get_input_context(input), high_res_distance);
   }
 
   void keyboard_update(input_t &input, uint16_t modcode, bool release, uint8_t flags, bool extended) {
+#ifdef SUNSHINE_BUILD_QEMU_DBUS
+    if (config::video.capture == "qemu") {
+      (void) flags;
+      (void) reims_stream::InputRoute::instance().key(modcode, !release, extended);
+      return;
+    }
+#endif
     virtualhid::keyboard_update(virtualhid::get_input_context(input), modcode, release, flags, extended);
   }
 
   void unicode(input_t &input, const char *utf8, int size) {
+#ifdef SUNSHINE_BUILD_QEMU_DBUS
+    if (config::video.capture == "qemu") {
+      // QEMU's Display1 keyboard has physical key events, not text injection.
+      // Do not type UTF-8 into HPSERVER or misinterpret non-ASCII characters.
+      (void) input; (void) utf8; (void) size;
+      return;
+    }
+#endif
     virtualhid::unicode(virtualhid::get_input_context(input), utf8, size);
   }
 

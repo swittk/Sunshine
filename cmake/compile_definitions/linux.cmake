@@ -8,13 +8,31 @@ if(SUNSHINE_ENABLE_QEMU_DBUS)
     set(QMDP_ENABLE_DMABUF_READBACK OFF CACHE BOOL "" FORCE)
     set(QMDP_BUILD_DBUS ON CACHE BOOL "" FORCE)
     add_subdirectory("${CMAKE_SOURCE_DIR}/../qsm-rd/qsm-direct" "${CMAKE_BINARY_DIR}/qmdp")
-    add_library(reims_capture_bridge STATIC "${CMAKE_SOURCE_DIR}/../bridge/src/capture_feed.cpp")
+    pkg_check_modules(REIMS_GIO REQUIRED IMPORTED_TARGET gio-2.0 gio-unix-2.0)
+    add_library(reims_capture_bridge STATIC
+        "${CMAKE_SOURCE_DIR}/../bridge/src/capture_feed.cpp"
+        "${CMAKE_SOURCE_DIR}/../bridge/src/cursor_blend.cpp"
+        "${CMAKE_SOURCE_DIR}/../bridge/src/input_route.cpp"
+        "${CMAKE_SOURCE_DIR}/../bridge/src/gio_qemu_display.cpp"
+        "${CMAKE_SOURCE_DIR}/../bridge/src/gio_qemu_audio.cpp")
+    target_link_libraries(reims_capture_bridge PUBLIC PkgConfig::REIMS_GIO)
     target_include_directories(reims_capture_bridge PUBLIC "${CMAKE_SOURCE_DIR}/../bridge/src")
     target_link_libraries(reims_capture_bridge PUBLIC qmdp_core)
     include_directories("${CMAKE_SOURCE_DIR}/../bridge/src" "${CMAKE_SOURCE_DIR}/../qsm-rd/qsm-direct/src")
-    list(APPEND PLATFORM_LIBRARIES qmdp_dbus reims_capture_bridge)
-    list(APPEND PLATFORM_TARGET_FILES "${CMAKE_SOURCE_DIR}/src/platform/linux/qemudbusgrab.cpp")
+    list(APPEND PLATFORM_LIBRARIES qmdp_dbus reims_capture_bridge pulse-simple)
+    list(APPEND PLATFORM_TARGET_FILES
+        "${CMAKE_SOURCE_DIR}/src/platform/linux/qemudbusgrab.cpp"
+        "${CMAKE_SOURCE_DIR}/../bridge/src/pulse_audio_bridge.cpp")
     add_compile_definitions(SUNSHINE_BUILD_QEMU_DBUS)
+    add_executable(reims_gio_smoke "${CMAKE_SOURCE_DIR}/../bridge/tests/gio_display_smoke.cpp")
+    target_include_directories(reims_gio_smoke PRIVATE "${CMAKE_SOURCE_DIR}/../bridge/src")
+    target_link_libraries(reims_gio_smoke PRIVATE reims_capture_bridge)
+    add_executable(reims_av_probe "${CMAKE_SOURCE_DIR}/../bridge/tests/av_probe.cpp")
+    target_include_directories(reims_av_probe PRIVATE "${CMAKE_SOURCE_DIR}/../bridge/src")
+    target_link_libraries(reims_av_probe PRIVATE reims_capture_bridge)
+    add_executable(reims_gio_lifecycle "${CMAKE_SOURCE_DIR}/../bridge/tests/gio_lifecycle.cpp")
+    target_include_directories(reims_gio_lifecycle PRIVATE "${CMAKE_SOURCE_DIR}/../bridge/src")
+    target_link_libraries(reims_gio_lifecycle PRIVATE reims_capture_bridge)
 endif()
 
 

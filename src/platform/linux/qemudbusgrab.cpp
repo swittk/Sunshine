@@ -16,7 +16,9 @@
 #endif
 
 #include "capture_feed.hpp"
-#include "qemu/qemu_dbus_display.hpp"
+#include "input_route.hpp"
+#include "pulse_audio_bridge.hpp"
+#include "gio_qemu_display.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -41,17 +43,21 @@ public:
     qemu_display_t(mem_type_e mem_type, const std::string &address,
                    const std::string &destination):
         mem_type_(mem_type),
-        qemu_(qmdp::QemuDbusOptions{
-            .bus_address = address,
-            .destination = destination,
-            .console_id = 0U,
-            .enable_audio = false,
-            .require_audio = false}),
-        feed_(qemu_) {}
+        qemu_(std::make_shared<reims_stream::GioQemuDisplay>(address,destination,use_guest_audio())),
+        feed_(*qemu_) {
+        feed_.set_audio_callback([this](std::span<const float> data,std::uint32_t rate,std::uint16_t channels){
+            audio_.submit(data,rate,channels);
+        });
+    }
 
-    ~qemu_display_t() override { feed_.stop(); }
+    ~qemu_display_t() override {
+        reims_stream::InputRoute::instance().detach(qemu_.get());
+        feed_.stop();
+        audio_.stop();
+    }
 
     bool initialize() {
+        if (use_guest_audio()) audio_.start();
         feed_.start();
         auto geometry = feed_.wait_geometry(3000ms);
         if (!geometry) return false;
@@ -59,6 +65,7 @@ public:
             geometry->width > 16384U || geometry->height > 16384U) return false;
         width = env_width = logical_width = env_logical_width = geometry->width;
         height = env_height = logical_height = env_logical_height = geometry->height;
+        reims_stream::InputRoute::instance().attach(qemu_);
         return true;
     }
 
@@ -136,8 +143,13 @@ public:
     }
 
 private:
+    static bool use_guest_audio() {
+        const char *setting=std::getenv("REIMS_ENABLE_AUDIO");
+        return setting && std::strcmp(setting,"1")==0;
+    }
     mem_type_e mem_type_;
-    qmdp::QemuDbusDisplay qemu_;
+    std::shared_ptr<reims_stream::GioQemuDisplay> qemu_;
+    reims_stream::PulseAudioBridge audio_;
     reims_stream::CaptureFeed feed_;
 };
 } // namespace
@@ -162,10 +174,10 @@ std::shared_ptr<display_t> qemu_dbus_display(mem_type_e mem_type,
     }
 #endif
     const char *dest = std::getenv("QEMU_DBUS_DESTINATION");
-    // -display dbus,addr=unix:path=... uses peer-to-peer mode (empty destination).
-    // A message bus setup can set QEMU_DBUS_DESTINATION=org.qemu explicitly.
+    // broker:/path and inherited fd: modes use an empty destination.
+    // -display dbus,addr=... connects to a message bus and uses org.qemu.
     auto backend = std::make_shared<qemu_display_t>(
-        mem_type, address, dest ? std::string(dest) : std::string());
+        mem_type, address, dest ? std::string(dest) : std::string("org.qemu"));
     try {
         if (!backend->initialize()) return nullptr;
         return backend;
