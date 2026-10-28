@@ -1,3 +1,5 @@
+> **Experimental QEMU Display1 integration:** This fork includes `capture=qemu` for QEMU/ReiMS. See [bridge source and setup](https://github.com/swittk/sunshine-qemu-bridge). This is not part of upstream Sunshine.
+
 <div align="center">
   <img
     src="sunshine.svg"
